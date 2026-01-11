@@ -17,3 +17,8 @@ func RequestError(c *gin.Context, err error) {
 		"message": err.Error(),
 	})
 }
+func RequestTaskError(c *gin.Context, err []string) {
+	c.JSON(400, gin.H{
+		"message": err,
+	})
+}

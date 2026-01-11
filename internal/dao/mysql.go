@@ -33,7 +33,7 @@ func (db Gorm) CreateTask(task *model.Task) error {
 
 func (db Gorm) UpdateTask(tasks *model.Task) (*model.Task, error) {
 	task := &model.Task{}
-	result := db.db.Model(task).Where("member_id = ?", tasks.MemberID).Updates(*tasks)
+	result := db.db.Model(task).Where("member_id = ? AND task_name= ?", tasks.MemberID, tasks.TaskName).Updates(tasks)
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -43,58 +43,56 @@ func (db Gorm) UpdateTask(tasks *model.Task) (*model.Task, error) {
 // 删除任务
 
 func (db Gorm) DeleteTask(data Data) (bool, error) {
-	var findData Data
 	var member model.Member
-	findData.Name = data.Name
-	findData.TaskName = ""
 	result := db.db.Where("user_name= ?", data.Name).First(&member)
 	if result.Error != nil {
 		return false, result.Error
 	}
-	res := db.db.Where("member_id = ? AND task_name = ?", member.ID, data.TaskName).Delete(&model.Task{})
-	if res.Error != nil {
-		if errors.Is(res.Error, gorm.ErrRecordNotFound) {
-			return false, nil
-		} else {
+	if data.TaskName == "" {
+		res := db.db.Where("member_id = ?", member.ID).Delete(&model.Task{})
+		if res.Error != nil {
 			return false, res.Error
 		}
+		return true, nil
+	}
+	res := db.db.Where("member_id = ? AND task_name = ?", member.ID, data.TaskName).Delete(&model.Task{})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return false, nil
 	}
 	return true, nil
 }
 
 // 数据库查找任务
 
-func (db Gorm) FindMemberData(data Data) (*model.Member, error) {
+func (db Gorm) FindMemberData(data Data) ([]model.Task, error) {
 	member := &model.Member{}
 	var tasks []model.Task
-	result := db.db.Where("user_name= ?", data.Name).First(member)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, nil
-		} else {
-			return nil, result.Error
-		}
+	err, ID := db.FindMemberID(data)
+	if err != nil {
+		return nil, err
 	}
+	(*member).ID = ID
 	if data.TaskName == "" {
 		results := db.db.Where("member_id= ?", member.ID).Find(&tasks)
 		if results.Error != nil {
-			if errors.Is(results.Error, gorm.ErrRecordNotFound) {
-				return nil, nil
-			}
 			return nil, results.Error
 		}
-		member.Tasks = tasks
-		return member, nil
+		if len(tasks) == 0 {
+			return nil, nil
+		}
+		return tasks, nil
 	} else {
 		results := db.db.Where("member_id = ? AND task_name = ?", member.ID, data.TaskName).Find(&tasks)
 		if results.Error != nil {
-			if errors.Is(results.Error, gorm.ErrRecordNotFound) {
-				return nil, nil
-			}
 			return nil, results.Error
 		}
-		member.Tasks = tasks
-		return member, nil
+		if len(tasks) == 0 {
+			return nil, nil
+		}
+		return tasks, nil
 	}
 }
 
@@ -109,7 +107,7 @@ func (db Gorm) DeleteMemberData(data Data) error {
 
 func (db Gorm) UpdateMemberData(members *model.Member) (*model.Member, error) {
 	member := &model.Member{}
-	result := db.db.Model(member).Where("user_name=?", (*members).UserName).Select((*members).PassWord).Updates(members)
+	result := db.db.Model(member).Where("user_name=?", (*members).UserName).Select("pass_word").Updates(members)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -137,4 +135,12 @@ func (db Gorm) FindMember(members *model.Member) (error, bool) {
 		return nil, false
 	}
 	return nil, true
+}
+
+//查询用户id
+
+func (db Gorm) FindMemberID(data Data) (error, uint) {
+	member := &model.Member{}
+	result := db.db.Where("user_name= ?", data.Name).First(member)
+	return result.Error, (*member).ID
 }

@@ -3,16 +3,17 @@ package main
 import (
 	"a-easy-memo/internal/config"
 	"a-easy-memo/internal/routers"
-	"fmt"
+	"a-easy-memo/zlog"
 
-	"log"
+	"go.uber.org/zap"
 )
 
 func main() {
-	fmt.Println("请先登录数据库")
+	zlog.Info("登录数据库")
 	err := config.Command.Execute()
 	if err != nil {
-		log.Fatal(err)
+		zlog.Warn("登录失败", zap.Error(err))
+		return
 	}
 	routers.Routers()
 }

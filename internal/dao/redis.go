@@ -45,8 +45,19 @@ func (redis Redis) SetRedis(data Data, existTime time.Duration) error {
 // 得到任务数据
 
 func (redis Redis) GetRedis(data Data) (interface{}, error) {
-	result := redis.redis.HGet(redis.ctx, data.Name, data.TaskName)
-	return result.Result()
+	exist, err := redis.redis.HExists(redis.ctx, data.Name, data.TaskName).Result()
+	if err != nil {
+		return nil, err
+	}
+	if !exist {
+		return nil, nil
+	}
+	results := redis.redis.HGet(redis.ctx, data.Name, data.TaskName)
+	result, err := results.Result()
+	if err != nil {
+		return nil, err
+	}
+	return result, err
 }
 
 // 建立多个任务数据缓存
@@ -126,7 +137,7 @@ func (redis Redis) GetData(data string) (Data, error) {
 	if len(parts) != 2 {
 		return reData, fmt.Errorf("错误的缓存格式")
 	}
-	reData.Name = parts[0]
+	reData.Name = strings.Replace(parts[0], "always", "", 1)
 	reData.TaskName = parts[1]
 	reData.Value = result.Val()
 	return reData, nil
@@ -142,4 +153,11 @@ func (redis Redis) GetAll(data Data, cursor uint64) (uint64, []string, error) {
 	}
 	key, nextCursor := result.Val()
 	return nextCursor, key, nil
+}
+
+// 删除写缓存
+
+func (redis Redis) DeleteWrite(data string) error {
+	result := redis.redis.Del(redis.ctx, data)
+	return result.Err()
 }

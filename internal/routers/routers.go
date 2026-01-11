@@ -1,7 +1,7 @@
 package routers
 
 import (
-	"a-easy-memo/internal/api/serve"
+	"a-easy-memo/internal/api/api"
 	"a-easy-memo/internal/config"
 	"a-easy-memo/internal/dao"
 	"a-easy-memo/internal/login"
@@ -13,7 +13,8 @@ import (
 func Routers() {
 	r := gin.Default()
 	db := dao.NewGorm(config.DB)
-	res := dao.NewRedis(config.REDIS)
+	res := dao.NewRedis(config.REDIS, config.CTX)
+	r.Use(middleware.ZapLog())
 	account := r.Group("/account")
 	{
 		account.POST("/register", login.Register(db))
@@ -24,10 +25,11 @@ func Routers() {
 	task := r.Group("/task")
 	{
 		task.Use(middleware.Middleware())
-		task.PUT("/", serve.Change(db, res, config.CTX))
-		task.DELETE("/", serve.Del(db, res, config.CTX))
-		task.POST("/", serve.Add(db, res, config.CTX))
-		task.GET("/", serve.Find(db, res, config.CTX))
+		task.PUT("/", api.Change(db, res))
+		task.DELETE("/", api.Delete(db, res))
+		task.POST("/", api.Change(db, res))
+		task.GET("/", api.Find(db, res))
+		task.POST("/save", api.Save(db, res))
 	}
 	r.Run(":8080")
 }

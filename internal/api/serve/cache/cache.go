@@ -22,7 +22,7 @@ func FindTask(data dao.Data, redis dao.MemberTask) (*model.Member, error) {
 			if err != nil {
 				return nil, err
 			}
-			results := result.(map[string]interface{})
+			results := result.(map[string]string)
 			if len(results) == 0 {
 				return member, nil //未能查到数据也返回空结构体，serve会在后面去数据库找
 			}
@@ -30,7 +30,7 @@ func FindTask(data dao.Data, redis dao.MemberTask) (*model.Member, error) {
 			for taskName, taskContext := range results {
 				task := model.Task{
 					TaskName:    taskName,
-					TaskContent: taskContext.(string),
+					TaskContent: taskContext,
 				}
 				tasks = append(tasks, task)
 			}
@@ -40,6 +40,9 @@ func FindTask(data dao.Data, redis dao.MemberTask) (*model.Member, error) {
 			results, err := redis.GetRedis(data)
 			if err != nil {
 				return nil, err
+			}
+			if results == nil {
+				return &model.Member{}, nil
 			}
 			result := results.(string)
 			member = &model.Member{

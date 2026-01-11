@@ -6,13 +6,15 @@ import (
 	"a-easy-memo/internal/dao"
 	"a-easy-memo/internal/model"
 	"a-easy-memo/pkg/utils"
-	"a-easy-memo/workpool"
 	"errors"
+	"fmt"
 	"time"
 )
 
-// 把服务层接收数据改在api层
-// 查找对应任务,目前这个仅图简易，能跑，但问题还很多
+//加入保存功能，每次编辑必须保存才能查询，set建立写缓存，每个操作先保存后再放入数据库，未保存会定时存入
+
+// @param name: 解析的用户名字
+// 		  tasks:解析的任务名
 
 func Find(db dao.MemberData, task dao.MemberTask, name string, tasks []string) (*model.Member, error) {
 	var data dao.Data
@@ -25,7 +27,7 @@ func Find(db dao.MemberData, task dao.MemberTask, name string, tasks []string) (
 		if err != nil {
 			return nil, errors.New("查询缓存失败")
 		}
-		if len((*mem).Tasks) > 1 {
+		if len((*mem).Tasks) > 1 { //有的缓存过期的无法查到了
 			member = mem
 			return member, nil
 		} else if len((*mem).Tasks) == 1 {
@@ -39,11 +41,11 @@ func Find(db dao.MemberData, task dao.MemberTask, name string, tasks []string) (
 				time.Sleep(30 * time.Second)
 				return Find(db, task, name, tasks)
 			}
-			members, err := db.FindMemberData(data)
+			tas, err := db.FindMemberData(data)
 			if err != nil {
 				return nil, err
 			}
-			if members == nil {
+			if tas == nil {
 				data.Value = "null" //缓存空值，防止缓存穿透
 				err = cache.AddTask(data, task, 60*time.Minute)
 				if err != nil {
@@ -55,7 +57,7 @@ func Find(db dao.MemberData, task dao.MemberTask, name string, tasks []string) (
 				result = append(result, null)
 				continue
 			} else {
-				for _, value := range (*members).Tasks {
+				for _, value := range tas {
 					data.Value = value.TaskContent
 					err = cache.AddTask(data, task, 24*time.Hour+utils.RandomDuration(6)) //设置随机存在时间避免缓存雪崩
 					if err != nil {
@@ -63,7 +65,7 @@ func Find(db dao.MemberData, task dao.MemberTask, name string, tasks []string) (
 					}
 				}
 			}
-			result = append(result, (*members).Tasks[0])
+			result = append(result, tas[0])
 			err = lock.DelLock(data, task)
 			if err != nil {
 				return nil, err
@@ -75,61 +77,67 @@ func Find(db dao.MemberData, task dao.MemberTask, name string, tasks []string) (
 	return member, nil
 }
 
-func Add(db dao.MemberData, task dao.MemberTask, name string, tasks []string) error {
-	var data dao.Data
-	var tas *model.Task
-	data.Name = name
-	tas = &model.Task{}
-	db.UpdateTask(tas)
-	for _, taskName := range tasks {
-		data.TaskName = taskName
-		err := cache.AddTask(data, task, 60*time.Minute)
-		if err != nil {
-			return err
-		}
-	}
-}
+// 直接添加进写缓存
 
-func Del(db dao.MemberData, task dao.MemberTask, name string, tasks []string) error {
+func Add(task dao.MemberTask, name string, tasks map[string]string) error {
 	var data dao.Data
-	var finerr error
-	work := workpool.CreatTask(100)
 	data.Name = name
-	for _, taskName := range tasks {
-		mem, err := Find(db, task, name, tasks)
+	for taskName, taskValue := range tasks {
+		data.TaskName = taskName
+		data.Value = taskValue
+		err := cache.UpdateCache(data, task)
 		if err != nil {
 			return err
 		}
-		for _, t := range (*mem).Tasks {
-			if t.TaskContent != "null" {
-				work.AddTask(func() {
-					data.TaskName = taskName
-					_, err := cache.DeleteTask(data, task)
-					if err != nil {
-						finerr = err
-						return
-					}
-					_, err = db.DeleteTask(data)
-					if err != nil {
-						finerr = err
-						return
-					}
-				})
-				if finerr != nil {
-					return finerr
-				}
-			}
-		}
 	}
-	work.Close()
-	work.Wait()
 	return nil
 }
 
-func Change(db dao.MemberData, task dao.MemberTask, name string, tasks []string) error {
+//亦需修改成定时缓存中删除
 
-}
-
-func PutSql() {
-
+func Del(db dao.MemberData, task dao.MemberTask, name string, tasks []string) (error, []string) {
+	var data dao.Data
+	data.Name = name
+	m, err := Find(db, task, data.Name, tasks)
+	if err != nil {
+		return err, nil
+	}
+	var taskErr []string
+	for _, t := range m.Tasks {
+		data.TaskName = t.TaskName
+		if t.TaskContent != "null" {
+			_, err := db.DeleteTask(data)
+			if err != nil {
+				return err, nil
+			}
+			_, err = cache.DeleteTask(data, task)
+			if err != nil {
+				return err, nil
+			}
+			key := data.Name + ":" + data.TaskName
+			alwaysKey := "always" + data.Name + ":" + data.TaskName
+			err = task.DeleteWrite(alwaysKey)
+			if err != nil {
+				return err, nil
+			}
+			var existData dao.Data
+			existData.Name = key
+			ok, err := task.IsExpired(existData) //判断是否过期
+			if err != nil {
+				return err, nil
+			}
+			if !ok {
+				err = task.DeleteWrite(key)
+				if err != nil {
+					return err, nil
+				}
+			}
+		} else {
+			taskErr = append(taskErr, fmt.Sprintf("并未存在该任务%s:%s", data.Name, data.TaskName))
+		}
+	}
+	if len(taskErr) > 0 {
+		return nil, taskErr
+	}
+	return nil, nil
 }

@@ -21,3 +21,20 @@ type Task struct {
 func (Task) TableName() string {
 	return "task" // 或 "tasks"
 }
+
+type MemberRequest struct {
+	UserName string `json:"user_name"`
+	PassWord string `json:"pass_word"`
+}
+
+type TaskRequest struct {
+	UserName    string `json:"user_name"`
+	TaskName    string `json:"task_name"`
+	TaskContent string `json:"task_content"`
+	Save        bool   `json:"save"`
+}
+
+type SaveRequest struct {
+	UserName string `json:"user_name"`
+	Save     bool   `json:"save"`
+}

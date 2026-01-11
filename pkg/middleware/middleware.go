@@ -2,14 +2,17 @@ package middleware
 
 import (
 	"a-easy-memo/pkg/utils"
+	"a-easy-memo/zlog"
 	"errors"
 	"fmt"
+	"time"
 
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt"
+	"go.uber.org/zap"
 )
 
 func Middleware() gin.HandlerFunc {
@@ -46,6 +49,42 @@ func Middleware() gin.HandlerFunc {
 			})
 			c.Abort()
 			return
+		}
+	}
+}
+func ZapLog() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		path := c.Request.URL.Path
+		raw := c.Request.URL.RawQuery
+		if raw != "" {
+			path = path + "?" + raw
+		}
+		c.Next()
+		end := time.Now()
+		latency := end.Sub(start)
+		clientIP := c.ClientIP()
+		method := c.Request.Method
+		statusCode := c.Writer.Status()
+		responseSize := c.Writer.Size()
+		errs := c.Errors.ByType(gin.ErrorTypePrivate).String()
+		fields := []zap.Field{
+			zap.String("clientIP", clientIP),
+			zap.Int("statusCode", statusCode),
+			zap.Duration("latency", latency),
+			zap.Int("bytes", responseSize),
+			zap.String("user-agent", c.Request.UserAgent()),
+			zap.String("time", end.Format(time.RFC3339)),
+		}
+		if errs != "" {
+			fields = append(fields, zap.String("errors", errs))
+		}
+		if statusCode >= 400 && statusCode < 500 {
+			zlog.Warn(fmt.Sprintf("%s %s", method, path), fields...)
+		} else if statusCode >= 500 {
+			zlog.Error(fmt.Sprintf("%s %s", method, path), fields...)
+		} else {
+			zlog.Info(fmt.Sprintf("%s %s", method, path), fields...)
 		}
 	}
 }
